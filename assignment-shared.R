@@ -1,5 +1,6 @@
 #---------Load Libraries ------------------------------------
 #install.packages("caretEnsemble")
+install.packages("iml")
 library(plyr)
 library(tidyverse)
 library(naniar)
@@ -8,6 +9,11 @@ library(DMwR)
 library(caret)
 library(PerformanceAnalytics)
 library(caretEnsemble)
+library(pdp)
+library(vip) 
+library(ggplot2)
+library(iml)
+
 
 #--------Load Data-------------------------------------------
 train_df <- read.csv("https://raw.githubusercontent.com/behnouri/lprice-prediction/master/train.csv", na.strings = c("", "NA"))
@@ -35,6 +41,15 @@ gpu_df <- gpu_df[!is.na(gpu_df$gpu_benchmark_score),]
 ###############################Prepare Train Data#############################################
 colnames(train_df)[12] <- "dkeyboard"
 colnames(train_df)[1] <- "id"
+
+gg_miss_var(train_df)
+gg_miss_case(train_df)
+proof <- miss_case_summary(train_df) %>% group_by(n_miss)
+table(proof$n_miss)
+gg_miss_case_cumsum(train_df)
+table(train_df$display_type)
+
+unique(train_df$cpu_details)
 
 ##--------------------NA Values for TRAIN DATA------------------------------------
 ##--------------------Remove Rows with more than 4 nulls--------------------------
@@ -86,8 +101,9 @@ resolution_tmax <- clean4 %>%
 clean4 <- left_join(clean4,resolution_tmax)
 
 resolution_tmin <- clean4 %>%
+  mutate(price2=min_price) %>%
   group_by(resolution) %>%
-  summarise(resolution_mean_min = mean(min_price))
+  summarise(resolution_mean_min = mean(price2))
 clean4 <- left_join(clean4,resolution_tmin)
 
 ##------------------Screen Size for TRAIN DATA---------------------------------------------------
@@ -121,8 +137,9 @@ display_tmax <- clean4 %>%
 clean4 <- left_join(clean4,display_tmax)
 
 display_tmin <- clean4 %>%
+  mutate(price2=min_price) %>%
   group_by(display_type) %>%
-  summarise(display_mean_min = mean(min_price))
+  summarise(display_mean_min = mean(price2))
 clean4 <- left_join(clean4,display_tmin)
 
 
@@ -144,8 +161,9 @@ brand_tmax <- clean4 %>%
 clean4 <- left_join(clean4,brand_tmax)
 
 brand_tmin <- clean4 %>%
+  mutate(price2=min_price) %>%
   group_by(brand_clean) %>%
-  summarise(brand_mean_min = mean(min_price))
+  summarise(brand_mean_min = mean(price2))
 clean4 <- left_join(clean4,brand_tmin)
 
 # library(rpart)
@@ -207,8 +225,9 @@ cpu_tmax <- clean5 %>%
 clean5 <- left_join(clean5,cpu_tmax)
 
 cpu_tmin <- clean5 %>%
+  mutate(price2=min_price) %>%
   group_by(cpu2) %>%
-  summarise(cpu_mean_min = mean(min_price))
+  summarise(cpu_mean_min = mean(price2))
 clean5 <- left_join(clean5,cpu_tmin)
 
 ###--------------GPU Scores for TRAIN DATA-----------------------------------------------
@@ -249,8 +268,9 @@ gpu_tmax <- clean6 %>%
 clean6 <- left_join(clean6,gpu_tmax)
 
 gpu_tmin <- clean6 %>%
+  mutate(price2=min_price) %>%
   group_by(gpu) %>%
-  summarise(gpu_mean_min = mean(min_price))
+  summarise(gpu_mean_min = mean(price2))
 clean6 <- left_join(clean6,gpu_tmin)
 
 ##-------------------Base Name for TRAIN DATA--------------------------------------------------------
@@ -273,6 +293,8 @@ base_nam <- clean6 %>%
   mutate(base_name_clean= gsub("^.*dell xps\\S+.*","Dell xps",base_name_clean)) %>%
   mutate(base_name_clean= gsub("lenovo 100e","lenovo",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("dell inspiron chromebook",base_name_clean),"dell chromebook",base_name_clean))
+
+
 
 base_dd <- clean6 %>%
   select(base_name)
@@ -312,6 +334,12 @@ base_nam <- base_nam %>%
   mutate(base_name_clean=ifelse(grepl("rca",base_name),str_extract(base_nam$base_name_clean,"^(\\S+\\s){2}|^(\\S+\\s\\S+)|^(\\S+)"),base_name_clean)) %>%
   select(brand,base_name,base_name_clean,max_price,name,touchscreen)
 
+table(clean6$base_name)
+table(base_nam$base_name_clean)
+unique(clean6$os)
+unique(train_df$os)
+unique(base_nam$base_name_clean)
+
 base_nam <- base_nam %>%
   mutate(base_name_clean= gsub("flip","",base_name_clean))
 
@@ -328,8 +356,9 @@ base_name_tmax <- clean6 %>%
 clean6 <- left_join(clean6,base_name_tmax)
 
 base_name_tmin <- clean6 %>%
+  mutate(price2=min_price) %>%
   group_by(base_name_clean) %>%
-  summarise(base_name_mean_min = mean(min_price))
+  summarise(base_name_mean_min = mean(price2))
 clean6 <- left_join(clean6,base_name_tmin)
 
 #--------- 2-in-1 laptops --------------------------------------------
@@ -347,6 +376,7 @@ clean6 <- clean6 %>%
   mutate(weight_clean= ifelse(weight>=6 & weight<7,"6 to 6.9 Pounds",weight_clean)) %>%
   mutate(weight_clean= ifelse(weight>=7 & weight<8,"7 to 7.9 Pounds",weight_clean)) %>%
   mutate(weight_clean= ifelse(weight>=8 ,"8 Pounds & Above",weight_clean))
+
 
 # #--------- Factorising Train Data-----------------------------------------------
 # clean6$screen_size <- as.factor(clean6$screen_size)
@@ -446,8 +476,9 @@ clean_test1 <- clean_test1 %>%
 clean_test1 <- left_join(clean_test1,resolution_tmax)
 
 #resolution_tmin <- clean4 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(resolution) %>%
-#  summarise(resolution_mean_min = mean(price))
+#  summarise(resolution_mean_min = mean(price2))
 clean_test1 <- left_join(clean_test1,resolution_tmin)
 
 ##------------------Screen Size for TEST DATA---------------------------------------------------
@@ -481,8 +512,9 @@ clean_test1 <- clean_test1 %>%
 clean_test1 <- left_join(clean_test1,brand_tmax)
 
 #brand_tmin <- clean4 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(brand_clean) %>%
-#  summarise(brand_mean_min = mean(min_price))
+#  summarise(brand_mean_min = mean(price2))
 clean_test1 <- left_join(clean_test1,brand_tmin)
 
 # clean_test1 <- clean_test1 %>%
@@ -536,8 +568,9 @@ clean_test2$cpu2 <- gsub("Intel Core i3-2","Intel Core i3-4",clean_test2$cpu2)
 clean_test2 <- left_join(clean_test2,cpu_tmax)
 
 #cpu_tmin <- clean5 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(cpu2) %>%
-#  summarise(cpu_mean_min = mean(min_price))
+#  summarise(cpu_mean_min = mean(price2))
 clean_test2 <- left_join(clean_test2,cpu_tmin)
 
 # #--------------GPU Scores for test data -----------------------------------------------
@@ -602,8 +635,9 @@ clean_test3$gpu <- gsub("Intel Iris 540 540", "Intel Iris 540", clean_test3$gpu)
 clean_test3 <- left_join(clean_test3,gpu_tmax)
 
 #gpu_tmin <- clean6 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(gpu) %>%
-#  summarise(gpu_mean_min = mean(min_price))
+#  summarise(gpu_mean_min = mean(price2))
 clean_test3 <- left_join(clean_test3,gpu_tmin)
 
 #--------- Base_name_for_test_data-------------------------------------------------
@@ -635,7 +669,7 @@ base_nam_test <- clean_test3 %>%
   mutate(base_name_clean= ifelse(grepl("dell inspiron chromebook",base_name_clean),"dell chromebook",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("asus transformer mini",base_name_clean),"asus transformer book mini",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("asus l402sa",base_name_clean),"  ASUS Vivobook L402SA",base_name_clean)) %>%
-  mutate(base_name_clean= ifelse(grepl("alienware area-51m",base_name_clean),"alienware 17 r5",base_name_clean)) %>%
+    mutate(base_name_clean= ifelse(grepl("alienware area-51m",base_name_clean),"alienware 17 r5",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("samsung chromebook xe303c12",base_name_clean),"samsung chromebook",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("acer cb3-532",base_name_clean),"acer chromebook cb3-532",base_name_clean)) %>%
   mutate(base_name_clean= ifelse(grepl("asus c302ca-dhm4",base_name_clean),"asus chromebook c302ca-dhm4",base_name_clean)) %>%
@@ -699,8 +733,9 @@ clean6$base_name_clean <- as.character(clean6$base_name_clean)
 clean_test3 <- left_join(clean_test3,base_name_tmax)
 
 #base_name_tmin <- clean6 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(base_name_clean) %>%
-#  summarise(base_name_mean_min = mean(min_price))
+#  summarise(base_name_mean_min = mean(price2))
 clean_test3 <- left_join(clean_test3,base_name_tmin)
 
 #--------- 2-in-1 laptops - test data --------------------------------------------
@@ -737,8 +772,9 @@ clean_test3 <- clean_test3 %>%
 clean_test3 <- left_join(clean_test3,display_tmax)
 
 #display_tmin <- clean4 %>%
+#  mutate(price2=min_price) %>%
 #  group_by(display_type) %>%
-#  summarise(display_mean_min = mean(min_price))
+#  summarise(display_mean_min = mean(price2))
 clean_test3 <- left_join(clean_test3,display_tmin)
 
 # #--------- Factorising Test Data-----------------------------------------------
@@ -762,6 +798,14 @@ minPrice_Clean_Training_fact <- data.frame(model.matrix(~., data=minPrice_Clean_
 
 minPrice_Clean_Training2 <- clean6 %>% 
   select(brand_mean_max,base_name_mean_max,touchscreen,screen_surface,screen_size,weight,ram,storage,ssd,resolution_mean_max,discrete_gpu,gpu_mean_max,cpu_mean_max,display_mean_max,x360,os, min_price)
+
+
+
+maxPrice_Clean_Training2 <- clean6 %>% 
+  select(brand, touchscreen, screen_size, weight, ram, storage, dkeyboard, ssd,os, max_price)
+
+minPrice_Clean_Training3 <- clean6 %>% 
+  select(brand, touchscreen, screen_size, weight, ram, storage, dkeyboard, ssd,os, min_price)
 
 # # #-------- Data normalization -------------------
 #  
@@ -821,15 +865,26 @@ model4_max <- train(max_price ~ . , data = maxPrice_Norm_Training,
 
 ##### Train the model 6 eXtreme Gradient Boosting
 model6_max <- train(max_price ~ . , data = maxPrice_Clean_Training,
-                    method = "xgbTree", trControl = train.control, metric = "MAE")
+                    method = "xgbTree", trControl = train.control, metric = "MAE", importance = T)
 
 ##### Train the model 7 Parallel Random Forest  <---------------BEST MODEL SO FAR
 model7_max <- train(max_price ~ . , data = maxPrice_Clean_Training,
-                    method = "parRF", trControl = train.control, metric = "MAE")
+                    method = "parRF", trControl = train.control, metric = "MAE", importance = T)
+
+##### Train the model 7 Parallel Random Forest  <---------------BEST MODEL SO FAR
+# model7_max <- train(max_price ~ . , data = maxPrice_Clean_Training2,
+#                     method = "parRF", trControl = train.control, metric = "MAE")
 
 ##### Train the model 8 Stochastic Gradient Boosting # warning for some brands (few observations)
 model8_max <- train(max_price ~ . , data = maxPrice_Clean_Training,
                     method = "gbm", verbose = FALSE, trControl = train.control, metric = "MAE")
+
+# min(model6_max$results$MAE)
+# model6_max$results$MAE
+# model6_max$results$MAESD
+
+# model7_max$results$MAE
+# model7_max$results$MAESD
 
 
 
@@ -861,80 +916,189 @@ model4_min <- train(min_price ~ . , data = minPrice_Norm_Training,
 
 ##### Train the model 6 eXtreme Gradient Boosting
 model6_min <- train(min_price ~ . , data = minPrice_Clean_Training2,
-                    method = "xgbTree", trControl = train.control, metric = "MAE")
+                    method = "xgbTree", trControl = train.control, metric = "MAE", importance = T)
 
 ##### Train the model 7 Parallel Random Forest  <---------------BEST MODEL SO FAR
-model7_min <- train(min_price ~ . , data = minPrice_Clean_Training,
-                    method = "parRF", trControl = train.control, metric = "MAE")
+ model7_min <- train(min_price ~ . , data = minPrice_Clean_Training2,
+                     method = "parRF", trControl = train.control, metric = "MAE", importance = T)
+
 
 ##### Train the model 8 Stochastic Gradient Boosting # warning for some brands (few observations)
 model8_min <- train(min_price ~ . , data = minPrice_Clean_Training2,
                     method = "gbm", verbose = FALSE, trControl = train.control, metric = "MAE")
 
-##### Train the model 9 Parallel Random Forest  <---------------BEST MODEL SO FAR
-model9_min <- train(min_price ~ . , data = minPrice_Clean_Training2,
-                    method = "parRF", trControl = train.control, metric = "MAE")
 
 
+
+# model6_min$results$MAE
+# model6_min$results$MAESD
+# min(model6_min$results$MAE)
+
+#  model9_min$results$MAE
+# # model9_min$results$MAESD
+# 
+# actual_max_price <- maxPrice_Clean_Training %>% select(max_price)
+# actual_min_price <- minPrice_Clean_Training %>% select(min_price)
+# 
 # id_train <- clean6 %>% select(id)
 # 
-# train_max <- data.frame(predict(model7_max, type = "raw")) 
-# names(train_max) <- "train_max"
-# prueba <-cbind(id_train,train_max)
-# 
-# train_max2 <- data.frame(predict(model1_max, type = "raw")) 
-# names(train_max2) <- "train_max"
-# prueba2 <-cbind(id_train,train_max2)
-# 
-# train_max3 <- data.frame(predict(model2_max, type = "raw")) 
-# names(train_max3) <- "train_max"
-# prueba3 <-cbind(id_train,train_max3)
-# 
-# train_max4 <- data.frame(predict(model3_max, type = "raw")) 
-# names(train_max4) <- "train_max"
-# prueba4 <-cbind(id_train,train_max4)
-# 
-# train_max5 <- data.frame(predict(model4_max, type = "raw")) 
-# names(train_max5) <- "train_max"
-# prueba5 <-cbind(id_train,train_max5)
-# 
-# train_max6 <- data.frame(predict(model5_max, type = "raw")) 
-# names(train_max6) <- "train_max"
-# prueba6 <-cbind(id_train,train_max6)
-# 
-# train_max7 <- data.frame(predict(model6_max, type = "raw")) 
+# train_max7 <- data.frame(predict(model7_max, type = "raw"))
 # names(train_max7) <- "train_max"
 # prueba7 <-cbind(id_train,train_max7)
 # 
-# train_max8 <- data.frame(predict(model8_max, type = "raw")) 
-# names(train_max8) <- "train_max"
-# prueba8 <-cbind(id_train,train_max8)
- 
- prueba[prueba$id==6685,]
- prueba2[prueba2$id==6685,]
- prueba3[prueba3$id==6685,]
- prueba4[prueba4$id==6685,]
- prueba5[prueba5$id==6685,]
- prueba6[prueba6$id==6685,]
- prueba7[prueba7$id==6685,]
- prueba8[prueba8$id==6685,]
+# 
+# # train_max2 <- data.frame(predict(model1_max, type = "raw"))
+# # names(train_max2) <- "train_max"
+# # prueba2 <-cbind(id_train,train_max2)
+# # 
+# # train_max3 <- data.frame(predict(model2_max, type = "raw"))
+# # names(train_max3) <- "train_max"
+# # prueba3 <-cbind(id_train,train_max3)
+# # 
+# # train_max4 <- data.frame(predict(model3_max, type = "raw"))
+# # names(train_max4) <- "train_max"
+# # prueba4 <-cbind(id_train,train_max4)
+# # 
+# # train_max5 <- data.frame(predict(model4_max, type = "raw"))
+# # names(train_max5) <- "train_max"
+# # prueba5 <-cbind(id_train,train_max5)
+# # 
+# # train_max6 <- data.frame(predict(model5_max, type = "raw"))
+# # names(train_max6) <- "train_max"
+# # prueba6 <-cbind(id_train,train_max6)
+# 
+# train_max6 <- data.frame(predict(model6_max, type = "raw"))
+# names(train_max6) <- "train_max"
+# prueba6 <-cbind(id_train,train_max6)
+# 
+# 
+# # train_max8 <- data.frame(predict(model8_max, type = "raw"))
+# # names(train_max8) <- "train_max"
+# # prueba8 <-cbind(id_train,train_max8)
+#  
+#  # prueba[prueba$id==6685,]
+#  # prueba2[prueba2$id==6685,]
+#  # prueba3[prueba3$id==6685,]
+#  # prueba4[prueba4$id==6685,]
+#  # prueba5[prueba5$id==6685,]
+#  # prueba6[prueba6$id==6685,]
+#  # prueba7[prueba7$id==6685,]
+#  # prueba8[prueba8$id==6685,]
+# 
+# # train_min <- data.frame(predict(model9_min, type = "raw")) 
+# # names(train_min) <- "train_min"
+# 
+# train_min <- data.frame(predict(model7_min, type = "raw")) 
+# names(train_min) <- "train_min"
+# 
+# # train_min5 <- data.frame(predict(model4_min, type = "raw")) 
+# # names(train_min5) <- "train_min"
+#  
+# train_min7 <- data.frame(predict(model6_min, type = "raw")) 
+# names(train_min7) <- "train_min"
+#   
+# # train_min8 <- data.frame(predict(model8_min, type = "raw")) 
+# # names(train_min8) <- "train_min"
+#  
 
-train_min <- data.frame(predict(model9_min, type = "raw")) 
-names(train_min) <- "train_min"
+# -------------------- MAE calculation and VAR ----------------------------------
+modelo_nuevo1 <- cbind(data.frame(model7_max$pred$pred[order(model7_max$pred$rowIndex)]), data.frame(model7_max$pred$obs[order(model7_max$pred$rowIndex)]), data.frame(model7_max$pred$Resample[order(model7_max$pred$rowIndex)]))
+names(modelo_nuevo1) <- c("pred", "obs", "Resample")
+write.csv(modelo_nuevo1, file = "PRF on training.csv", row.names = F)
 
-train_min5 <- data.frame(predict(model4_min, type = "raw")) 
-names(train_min5) <- "train_min"
- 
-train_min7 <- data.frame(predict(model6_min, type = "raw")) 
-names(train_min7) <- "train_min"
-  
-train_min8 <- data.frame(predict(model8_min, type = "raw")) 
-names(train_min8) <- "train_min"
- 
-predic_weighted_ave_max <- (train_max*3/6)+(train_max5*1/6)+(train_max8*1/6)+(train_max7*1/6)
-predic_weighted_ave_min <- (train_min*3/6)+(train_min5*1/6)+(train_min8*1/6)+(train_min7*1/6)
-mean(abs(actual_max_price$max_price-predic_weighted_ave_max$train_max))+ mean(abs(actual_min_price$min_price-predic_weighted_ave_min$train_min))
+modelo_nuevo2 <- cbind(data.frame(model6_max$pred$pred[order(model6_max$pred$rowIndex)]), data.frame(model6_max$pred$obs[order(model6_max$pred$rowIndex)]), data.frame(model6_max$pred$Resample[order(model6_max$pred$rowIndex)]))
+names(modelo_nuevo2) <- c("pred", "obs", "Resample")
+write.csv(modelo_nuevo2, file = "XGBoost on training.csv", row.names = F)
 
+modelo_nuevo <- cbind(data.frame(model7_max$pred$pred[order(model7_max$pred$rowIndex)]*3/4+model6_max$pred$pred[order(model6_max$pred$rowIndex)]*1/4), data.frame(model7_max$pred$obs[order(model7_max$pred$rowIndex)]), data.frame(model7_max$pred$Resample[order(model7_max$pred$rowIndex)]))
+names(modelo_nuevo) <- c("pred", "obs", "Resample")
+
+nuevo <- modelo_nuevo %>% mutate(error = abs(modelo_nuevo$obs-modelo_nuevo$pred)) %>%
+  group_by(modelo_nuevo$Resample) %>% summarise(MAE = mean(error))
+mean(nuevo$MAE)
+var(nuevo$MAE)
+
+
+modelo_nuevo2 <- cbind(data.frame(model7_min$pred$pred[order(model7_min$pred$rowIndex)]*3/4+model6_min$pred$pred[order(model6_min$pred$rowIndex)]*1/4), data.frame(model7_min$pred$obs[order(model7_min$pred$rowIndex)]), data.frame(model7_min$pred$Resample[order(model7_min$pred$rowIndex)]))
+names(modelo_nuevo2) <- c("pred", "obs", "Resample")
+
+nuevo2 <- modelo_nuevo2 %>% mutate(error = abs(modelo_nuevo2$obs-modelo_nuevo2$pred)) %>%
+  group_by(modelo_nuevo2$Resample) %>% summarise(MAE = mean(error))
+mean(nuevo2$MAE)
+var(nuevo2$MAE)
+
+
+
+modelo_nuevo <- cbind(data.frame(model7_max$pred$pred[order(model7_max$pred$rowIndex)]), data.frame(model7_max$pred$obs[order(model7_max$pred$rowIndex)]), data.frame(model7_max$pred$Resample[order(model7_max$pred$rowIndex)]))
+names(modelo_nuevo) <- c("pred", "obs", "Resample")
+
+nuevo <- modelo_nuevo %>% mutate(error = abs(modelo_nuevo$obs-modelo_nuevo$pred)) %>%
+  group_by(modelo_nuevo$Resample) %>% summarise(MAE = mean(error))
+mean(nuevo$MAE)
+var(nuevo$MAE)
+
+
+# -------------------- Variable importance visualization -------------------------
+vi(model7_max)
+vi(model6_max)
+
+vi(model7_min)
+vi(model6_min)
+
+
+vip(model7_max, bar = T, horizontal = T, las=1)
+vip(model6_max, bar = T, horizontal = T, las=1)
+
+vip(model7_min, bar = T, horizontal = T, las=1)
+vip(model6_min, bar = T, horizontal = T, las=1)
+
+partial(model7_max, pred.var = "base_name_mean_max", plot = TRUE,
+              plot.engine = "ggplot2")
+
+partial(model7_max, pred.var = "cpu_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+partial(model7_max, pred.var = "gpu_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+
+partial(model7_min, pred.var = "base_name_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+partial(model7_min, pred.var = "cpu_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+partial(model7_min, pred.var = "gpu_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+
+partial(model6_min, pred.var = "base_name_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+partial(model6_min, pred.var = "cpu_mean_max", plot = TRUE,
+        plot.engine = "ggplot2")
+
+
+X1 <- maxPrice_Clean_Training[which(names(maxPrice_Clean_Training) != "max_price")]
+predictor1 <- Predictor$new(model7_max, data = X1, y=maxPrice_Clean_Training$max_price)
+predictor2 <- Predictor$new(model6_max, data = X1, y=maxPrice_Clean_Training$max_price)
+
+interact1 <- Interaction$new(predictor1)
+interact2 <- Interaction$new(predictor2)
+plot(interact1)
+plot(interact2)
+
+interact1$results
+interact2$results
+
+X2 <- minPrice_Clean_Training2[which(names(minPrice_Clean_Training2) != "min_price")]
+predictor1min <- Predictor$new(model7_min, data = X2, y=minPrice_Clean_Training2$min_price)
+predictor2min <- Predictor$new(model6_min, data = X2, y=minPrice_Clean_Training2$min_price)
+
+interact1min <- Interaction$new(predictor1min)
+interact2min <- Interaction$new(predictor2min)
+plot(interact1min)
+plot(interact2min)
 
 
 #------- Summarize the results ----------------
@@ -956,9 +1120,7 @@ print(min(model8_max$results$MAE+model8_min$results$MAE))
 
 
 
-###################
-
-
+#------------------- Ensembles -------------------------
 
 set.seed(123) #For reproducibility
 #model_list_max <- caretList(max_price~., data=maxPrice_Clean_Training, trControl=train.control, methodList=c("parRF", "gbm", "glmnet"), verbose = FALSE)
@@ -974,6 +1136,7 @@ set.seed(123) #For reproducibility
 model_list_min2 <- caretList(min_price~., data=minPrice_Clean_Training2, trControl=train.control, methodList=c("parRF", "xgbTree"),verbose = FALSE)
 
 xyplot(resamples(model_list_max), models = c("parRF", "xgbTree"), metric = "MAE")
+
 #xyplot(resamples(model_list_max), models = c("parRF", "glmnet"), metric = "MAE")
 #xyplot(resamples(model_list_max), models = c("gbm", "glmnet"), metric = "MAE")
 
@@ -1144,7 +1307,7 @@ predicTest_weighted_ave_min <- (pred_min_model7*3/4)+(pred_min_model6*1/4)
 predicTest_weighted_ave_max <- (pred_max_model7*3/4)+(pred_max_model6*1/4)
 
 names(predicTest_weighted_ave_min) <- "MIN"
-names(predicTest_weighted_ave_max) <- "MIN"
+names(predicTest_weighted_ave_max) <- "MAX"
 
 results7 <- cbind(id_test, predicTest_weighted_ave_min, predicTest_weighted_ave_max)
 results7
@@ -1207,8 +1370,8 @@ write.csv(results7, file = "Model 23 (weighted ensemble mean_max (parRF and EGB)
 # min(model7_varPrice$results$MAE) #4th best model (not much difference between models)
 # min(model8_varPrice$results$MAE) #3rd best model
 # 
- actual_max_price <- maxPrice_Clean_Training %>% select(max_price)
- actual_min_price <- minPrice_Clean_Training %>% select(min_price)
+ # actual_max_price <- maxPrice_Clean_Training %>% select(max_price)
+ # actual_min_price <- minPrice_Clean_Training %>% select(min_price)
 # min_price_pred <- data.frame(predict(model7_min, type = "raw"))
 # max_price_pred <- data.frame(predict(model7_max, type = "raw"))
 # 
